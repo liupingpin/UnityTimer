@@ -113,6 +113,23 @@ public class Timer
         return timer;
     }
 
+    public static void Register(Timer timer, float duration)
+    {
+        if (timer == null)
+        {
+            Debug.LogError("timer is null!");
+            return;
+        }
+
+        timer.duration = duration;
+        timer._startTime = timer.GetWorldTime();
+        timer._lastUpdateTime = timer._startTime;
+
+        if (timer.isDone && Timer._manager.Contains(timer))
+        {
+            Timer._manager.RegisterTimer(timer);
+        }
+    }
     /// <summary>
     /// Cancels a timer. The main benefit of this over the method on the instance is that you will not get
     /// a <see cref="NullReferenceException"/> if the timer is null.
@@ -464,9 +481,13 @@ public class Timer
 
             this._timers.RemoveAll(t => t.isDone);
         }
-    }
+        public bool Contains(Timer timer)
+        {
+            return _timers.Contains(timer);
+        }
 
     #endregion
 
+}
 }
 }

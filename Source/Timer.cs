@@ -114,7 +114,7 @@ public class Timer
 #if UNITY_EDITOR
         if (timer.isDone)
         {
-            LogModule.Error(LogScenario.Default, "{0} is Done,error!", timer);
+            Debug.LogWarningFormat("{0} is Done,error!", timer);
         }
 #endif
         timer.Init(duration, onComplete, onUpdate, isLooped, useRealTime, autoDestroyOwner);

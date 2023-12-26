@@ -105,30 +105,21 @@ public class Timer
             {
                 GameObject managerObject = new GameObject { name = "TimerManager" };
                 Timer._manager = managerObject.AddComponent<TimerManager>();
+                Object.DontDestroyOnLoad(managerObject);
             }
         }
 
-        Timer timer = new Timer(duration, onComplete, onUpdate, isLooped, useRealTime, autoDestroyOwner);
+        // Timer timer = new Timer(duration, onComplete, onUpdate, isLooped, useRealTime, autoDestroyOwner);
+        var timer = Timer._manager.SpawnTimer();
+#if UNITY_EDITOR
+        if (timer.isDone)
+        {
+            LogModule.Error(LogScenario.Default, "{0} is Done,error!", timer);
+        }
+#endif
+        timer.Init(duration, onComplete, onUpdate, isLooped, useRealTime, autoDestroyOwner);
         Timer._manager.RegisterTimer(timer);
         return timer;
-    }
-
-    public static void Register(Timer timer, float duration)
-    {
-        if (timer == null)
-        {
-            Debug.LogError("timer is null!");
-            return;
-        }
-
-        timer.duration = duration;
-        timer._startTime = timer.GetWorldTime();
-        timer._lastUpdateTime = timer._startTime;
-
-        if (timer.isDone && Timer._manager.Contains(timer))
-        {
-            Timer._manager.RegisterTimer(timer);
-        }
     }
     /// <summary>
     /// Cancels a timer. The main benefit of this over the method on the instance is that you will not get
@@ -313,8 +304,8 @@ public class Timer
         get { return this._hasAutoDestroyOwner && this._autoDestroyOwner == null; }
     }
 
-    private readonly Action _onComplete;
-    private readonly Action<float> _onUpdate;
+    private Action _onComplete;
+    private Action<float> _onUpdate;
     private float _startTime;
     private float _lastUpdateTime;
 
@@ -328,13 +319,13 @@ public class Timer
     // after the auto destroy owner is destroyed, the timer will expire
     // this way you don't run into any annoying bugs with timers running and accessing objects
     // after they have been destroyed
-    private readonly MonoBehaviour _autoDestroyOwner;
-    private readonly bool _hasAutoDestroyOwner;
+    private MonoBehaviour _autoDestroyOwner;
+    private bool _hasAutoDestroyOwner;
 
     #endregion
 
     #region Private Constructor (use static Register method to create new timer)
-
+    public Timer() { }
     private Timer(float duration, Action onComplete, Action<float> onUpdate,
         bool isLooped, bool usesRealTime, MonoBehaviour autoDestroyOwner)
     {
@@ -351,7 +342,22 @@ public class Timer
         this._startTime = this.GetWorldTime();
         this._lastUpdateTime = this._startTime;
     }
+    public void Init(float duration, Action onComplete, Action<float> onUpdate,
+        bool isLooped, bool usesRealTime, MonoBehaviour autoDestroyOwner)
+    {
+        this.duration = duration;
+        this._onComplete = onComplete;
+        this._onUpdate = onUpdate;
 
+        this.isLooped = isLooped;
+        this.usesRealTime = usesRealTime;
+
+        this._autoDestroyOwner = autoDestroyOwner;
+        this._hasAutoDestroyOwner = autoDestroyOwner != null;
+
+        this._startTime = this.GetWorldTime();
+        this._lastUpdateTime = this._startTime;
+    }
     #endregion
 
     #region Private Methods
@@ -394,12 +400,6 @@ public class Timer
 
         if (this.GetWorldTime() >= this.GetFireTime())
         {
-
-            if (this._onComplete != null)
-            {
-                this._onComplete();
-            }
-
             if (this.isLooped)
             {
                 this._startTime = this.GetWorldTime();
@@ -408,7 +408,50 @@ public class Timer
             {
                 this.isCompleted = true;
             }
+
+            if (this._onComplete != null)
+            {
+                this._onComplete();
+            }
         }
+    }
+    private void OnGet()
+    {
+        Clear();
+    }
+
+    private void OnRelease()
+    {
+        Clear();
+    }
+
+    private void Clear()
+    {
+        this.isCompleted = false;
+        this._timeElapsedBeforePause = null;
+        this._timeElapsedBeforeCancel = null;
+
+        this.duration = 0;
+        this._onComplete = null;
+        this._onUpdate = null;
+
+        this.isLooped = false;
+        this.usesRealTime = false;
+
+        this._autoDestroyOwner = null;
+        this._hasAutoDestroyOwner = false;
+
+        this._startTime = 0;
+        this._lastUpdateTime = 0;
+    }
+
+    public override string ToString()
+    {
+        if (_autoDestroyOwner)
+        {
+            return $"UnityTimer:{_autoDestroyOwner.name}";
+        }
+        return base.ToString();
     }
 
     #endregion
@@ -422,10 +465,23 @@ public class Timer
     /// </summary>
     private class TimerManager : MonoBehaviour
     {
+        //使用池来做优化
+        ObjectPool<Timer> pool = new ObjectPool<Timer>(x => x.OnGet(), x => x.OnRelease());
         private List<Timer> _timers = new List<Timer>();
 
         // buffer adding timers so we don't edit a collection during iteration
         private List<Timer> _timersToAdd = new List<Timer>();
+        private List<Timer> _timersToRemove = new List<Timer>();
+
+        public Timer SpawnTimer()
+        {
+            return pool.Get();
+        }
+
+        public void UnSpawnTimer(Timer timer)
+        {
+            pool.Release(timer);
+        }
 
         public void RegisterTimer(Timer timer)
         {
@@ -477,15 +533,23 @@ public class Timer
             foreach (Timer timer in this._timers)
             {
                 timer.Update();
+                if (timer.isDone)
+                {
+                    _timersToRemove.Add(timer);
+                }
             }
 
             this._timers.RemoveAll(t => t.isDone);
-        }
-        public bool Contains(Timer timer)
-        {
-            return _timers.Contains(timer);
-        }
 
+            if (_timersToRemove.Count > 0)
+            {
+                foreach (var timer in _timersToRemove)
+                {
+                    UnSpawnTimer(timer);
+                }
+                _timersToRemove.Clear();
+            }
+        }
     #endregion
 
 }

@@ -465,22 +465,38 @@ public class Timer
     /// </summary>
     private class TimerManager : MonoBehaviour
     {
-        //使用池来做优化
-        ObjectPool<Timer> pool = new ObjectPool<Timer>(x => x.OnGet(), x => x.OnRelease());
+        /// <summary>
+        /// 获取回调，方便外部池框架接入
+        /// </summary>
+        private Func<Timer> GetFunc;
+        /// <summary>
+        /// 释放回调，方便外部池框架接入
+        /// </summary>
+        private Action<Timer> ReleaseAction;
         private List<Timer> _timers = new List<Timer>();
 
         // buffer adding timers so we don't edit a collection during iteration
         private List<Timer> _timersToAdd = new List<Timer>();
         private List<Timer> _timersToRemove = new List<Timer>();
 
+        public void RegisterGetAndRelease(Func<Timer> getFunc, Action<Timer> releaseAction)
+        {
+            this.GetFunc = getFunc;
+            this.ReleaseAction = releaseAction;
+        }
+        
         public Timer SpawnTimer()
         {
-            return pool.Get();
+            if(GetFunc == null)
+                throw new ArgumentNullException("Need GetFunc Register!");
+            return GetFunc();
         }
 
         public void UnSpawnTimer(Timer timer)
         {
-            pool.Release(timer);
+            if(ReleaseAction == null)
+                throw new ArgumentNullException("Need ReleaseAction Register!");
+            ReleaseAction(timer);
         }
 
         public void RegisterTimer(Timer timer)
